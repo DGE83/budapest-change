@@ -1,8 +1,25 @@
 [build]
   publish = "."
 
+# En-têtes de sécurité pour toutes les routes.
+# CSP construite à partir de l'inventaire réel de l'app (pas de politique générique) :
+# - script-src/style-src 'self' seuls : app.js et style.css sont les seuls script/style,
+#   aucun inline, donc pas besoin de 'unsafe-inline'/'unsafe-eval'
+# - connect-src ajoute api.frankfurter.dev : seule API appelée (taux courant + historique)
+# - manifest-src et worker-src 'self' : manifest.webmanifest et service-worker.js sont servis depuis l'origine
+# - img-src ajoute data: pour les icônes éventuellement encodées en ligne
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.frankfurter.dev; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
+
 # Le service worker ne doit jamais rester en cache côté navigateur/CDN,
 # sinon les mises à jour (changement de VERSION) ne se propagent pas.
+# (Netlify fusionne les en-têtes des règles qui matchent : cette route garde
+# donc aussi les en-têtes de sécurité ci-dessus.)
 [[headers]]
   for = "/service-worker.js"
   [headers.values]
