@@ -8,3 +8,9 @@ Thumbs.db
 # Éditeurs
 .vscode/
 .idea/
+
+# Local Netlify folder
+.netlify
+
+# État local de session Claude Code
+.claude/
