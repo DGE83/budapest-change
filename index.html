@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Change EUR ↔ HUF — Budapest</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#0a6e4e">
+</head>
+<body>
+
+  <header class="entete">
+    <h1>💱 EUR ⇄ HUF</h1>
+    <button id="btn-theme" class="btn-theme" type="button" aria-label="Changer de thème">🌓</button>
+  </header>
+
+  <!-- Message d'erreur affiché uniquement si l'API échoue -->
+  <p id="message-erreur" class="message-erreur" hidden></p>
+
+  <!-- Indicateur affiché quand le navigateur n'a plus de connexion réseau -->
+  <p id="indicateur-hors-ligne" class="indicateur-hors-ligne" hidden></p>
+
+  <main class="conteneur">
+
+    <!-- Champ EUR -->
+    <section class="champ-devise">
+      <label for="champ-eur">Euros (EUR)</label>
+      <input type="text" inputmode="decimal" id="champ-eur" placeholder="0" autocomplete="off">
+      <div class="raccourcis">
+        <button type="button" class="btn-raccourci" data-devise="eur" data-valeur="5">5 €</button>
+        <button type="button" class="btn-raccourci" data-devise="eur" data-valeur="10">10 €</button>
+        <button type="button" class="btn-raccourci" data-devise="eur" data-valeur="20">20 €</button>
+        <button type="button" class="btn-raccourci" data-devise="eur" data-valeur="50">50 €</button>
+      </div>
+    </section>
+
+    <div class="icone-echange">⇅</div>
+
+    <button id="btn-reinit" class="btn-reinit" type="button">↺ Réinitialiser</button>
+
+    <!-- Champ HUF -->
+    <section class="champ-devise">
+      <label for="champ-huf">Forints (HUF)</label>
+      <input type="text" inputmode="decimal" id="champ-huf" placeholder="0" autocomplete="off">
+      <div class="raccourcis">
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="1000">1 000 Ft</button>
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="5000">5 000 Ft</button>
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="10000">10 000 Ft</button>
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="20000">20 000 Ft</button>
+      </div>
+    </section>
+
+    <!-- Réglage de la marge -->
+    <section class="bloc-marge">
+      <label for="curseur-marge">
+        Marge appliquée : <span id="valeur-marge">3</span> %
+      </label>
+      <input type="range" id="curseur-marge" min="0" max="10" step="0.5" value="3">
+    </section>
+
+    <!-- Informations sur les taux -->
+    <section class="bloc-infos">
+      <div class="entete-bloc">
+        <h2 class="titre-section">Taux de change</h2>
+        <button id="btn-actualiser" class="btn-actualiser" type="button">⟳ Actualiser</button>
+      </div>
+      <p id="indicateur-perime" class="indicateur-perime" hidden></p>
+      <p>Taux BCE (brut) : <strong id="info-taux-brut">—</strong></p>
+      <p>Taux réaliste appliqué : <strong id="info-taux-reel">—</strong></p>
+      <p>Date du taux : <span id="info-date-taux">—</span></p>
+      <p>Dernière actualisation : <span id="info-maj">—</span></p>
+    </section>
+
+    <!-- Graphique du taux sur 7 jours -->
+    <section class="bloc-graphique">
+      <h2 class="titre-section">Évolution sur 7 jours</h2>
+      <div id="conteneur-graphique" class="conteneur-graphique"></div>
+      <p id="info-min-max" class="info-min-max">—</p>
+    </section>
+
+    <!-- Mémo repliable des prix usuels à Budapest -->
+    <details class="bloc-reperes">
+      <summary>Repères de prix à Budapest</summary>
+      <ul id="liste-reperes" class="liste-reperes"></ul>
+    </details>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

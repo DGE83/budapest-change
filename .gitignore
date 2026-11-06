@@ -1,0 +1,10 @@
+# Rapports/temporaires générés localement
+lighthouse-report.json
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+.vscode/
+.idea/

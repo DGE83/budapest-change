@@ -1,0 +1,9 @@
+[build]
+  publish = "."
+
+# Le service worker ne doit jamais rester en cache côté navigateur/CDN,
+# sinon les mises à jour (changement de VERSION) ne se propagent pas.
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
