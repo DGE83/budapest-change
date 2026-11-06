@@ -3,6 +3,9 @@
 // Taux officiel BCE récupéré via l'API gratuite Frankfurter.
 // Réponse de l'API (vérifiée avec curl) :
 // {"amount":1.0,"base":"EUR","date":"2026-11-05","rates":{"HUF":363.18}}
+// Toute donnée externe (saisie utilisateur, réponse API, localStorage) est
+// validée strictement avant usage : voir validerTaux(), analyserMontant(),
+// dateEstValide() et les lectures de localStorage ci-dessous.
 // =========================================================================
 
 // Repères de prix usuels à Budapest (fourchettes en HUF, modifiables librement).
@@ -18,6 +21,12 @@ const REPERES_PRIX_BUDAPEST = [
 
 const URL_API = 'https://api.frankfurter.dev/v1/latest?base=EUR&symbols=HUF';
 const URL_API_HISTORIQUE_BASE = 'https://api.frankfurter.dev/v1';
+const DELAI_TIMEOUT_MS = 8000;
+
+// Bornes de validation d'une saisie utilisateur
+const RE_MONTANT = /^\d+(\.\d{0,2})?$/;
+const MAX_EUR = 10000000;
+const MAX_HUF = 3000000000;
 
 // Clés utilisées dans le localStorage pour mémoriser les réglages/dernier taux
 const CLE_MARGE = 'change-budapest-marge';
@@ -54,22 +63,98 @@ const formatTaux = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, ma
 const formatTauxAffiche = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // État de l'application
-let tauxBrut = null;       // taux BCE EUR -> HUF
-let dateTaux = null;       // date renvoyée par l'API
+let tauxBrut = null;       // taux BCE EUR -> HUF (toujours une valeur déjà validée par validerTaux/tauxEstValide)
+let dateTaux = null;       // date renvoyée par l'API (toujours déjà validée par dateEstValide)
 let marge = 3;             // marge en %, 3% par défaut
 let dernierChampModifie = 'eur'; // sert à savoir quel champ recalculer après un changement de marge
 let derniereMajDate = null; // date/heure du dernier taux obtenu avec succès (ou repris du cache)
 
 // -------------------------------------------------------------------------
+// Accès sécurisés au localStorage (peut lever en navigation privée, quota
+// dépassé, politique du navigateur, etc. : on ne doit jamais planter l'app)
+// -------------------------------------------------------------------------
+
+function lireLocalStorage(cle) {
+  try {
+    return localStorage.getItem(cle);
+  } catch {
+    return null;
+  }
+}
+
+function ecrireLocalStorage(cle, valeur) {
+  try {
+    localStorage.setItem(cle, valeur);
+  } catch (erreur) {
+    console.warn(`Écriture localStorage impossible pour "${cle}" :`, erreur);
+  }
+}
+
+function supprimerLocalStorage(cle) {
+  try {
+    localStorage.removeItem(cle);
+  } catch (erreur) {
+    console.warn(`Suppression localStorage impossible pour "${cle}" :`, erreur);
+  }
+}
+
+// -------------------------------------------------------------------------
+// Validation des données (saisie utilisateur, réponses API, localStorage)
+// -------------------------------------------------------------------------
+
+// Valide strictement une saisie numérique : espaces (y compris les espaces
+// insécables utilisés par le formatage fr-FR) supprimés, virgule acceptée
+// comme séparateur décimal, puis comparaison à une forme exacte. Toute
+// forme non conforme est rejetée plutôt qu'interprétée partiellement
+// (ex. "100abc" ou "1e9" ne sont jamais lus comme un nombre).
+function analyserMontant(texte, max) {
+  if (typeof texte !== 'string') return NaN;
+  const nettoye = texte.replace(/\s/g, '').replace(',', '.');
+  if (!RE_MONTANT.test(nettoye)) return NaN;
+  const n = parseFloat(nettoye);
+  if (!Number.isFinite(n) || n < 0 || n > max) return NaN;
+  return n;
+}
+
+// Vérifie qu'une chaîne est une date calendaire réelle au format AAAA-MM-JJ
+// (rejette par exemple "2026-13-40", que le simple format regex laisserait passer)
+function dateEstValide(texte) {
+  if (typeof texte !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(texte)) return false;
+  const [annee, mois, jour] = texte.split('-').map(Number);
+  const date = new Date(Date.UTC(annee, mois - 1, jour));
+  return date.getUTCFullYear() === annee && date.getUTCMonth() === mois - 1 && date.getUTCDate() === jour;
+}
+
+// Un taux EUR -> HUF plausible : nombre fini et dans une fourchette réaliste.
+// Évite d'accepter 0, une chaîne mal typée, ou une valeur aberrante renvoyée par l'API.
+function tauxEstValide(huf) {
+  return typeof huf === 'number' && Number.isFinite(huf) && huf >= 100 && huf <= 1000;
+}
+
+// Valide la forme complète d'une réponse de l'endpoint "latest" de l'API
+function validerTaux(donnees) {
+  return !!donnees
+    && typeof donnees === 'object'
+    && !!donnees.rates
+    && typeof donnees.rates === 'object'
+    && tauxEstValide(donnees.rates.HUF)
+    && dateEstValide(donnees.date);
+}
+
+// -------------------------------------------------------------------------
 // Fonctions utilitaires
 // -------------------------------------------------------------------------
 
-// Transforme un texte saisi par l'utilisateur (avec virgule ou point) en nombre
-function analyserNombre(texte) {
-  if (typeof texte !== 'string') return NaN;
-  const nettoye = texte.trim().replace(/\s/g, '').replace(',', '.');
-  if (nettoye === '') return NaN;
-  return parseFloat(nettoye);
+// Effectue un fetch avec une limite de temps : abandonne la requête après
+// `delaiMs` pour ne jamais laisser l'interface bloquée sur un réseau très lent.
+async function fetchAvecTimeout(url, delaiMs = DELAI_TIMEOUT_MS) {
+  const controleur = new AbortController();
+  const minuteur = setTimeout(() => controleur.abort(), delaiMs);
+  try {
+    return await fetch(url, { signal: controleur.signal });
+  } finally {
+    clearTimeout(minuteur);
+  }
 }
 
 // Calcule le taux réaliste à partir du taux BCE brut et de la marge (en %)
@@ -111,14 +196,33 @@ function formaterDateHeureCourte(date) {
   return `${jourMois} à ${heureMin}`;
 }
 
-// Affiche ou masque le message d'erreur
-function afficherErreur(texte) {
+// Le même emplacement affiche deux types de messages distincts qui ne doivent
+// jamais s'écraser l'un l'autre : une erreur de saisie (prioritaire, car elle
+// concerne une action en cours de l'utilisateur) et le statut du taux réseau
+// (cache / non actualisé / aucun taux). On les garde en mémoire séparément.
+let messageSaisieActuel = null;
+let messageStatutTauxActuel = null;
+
+function rafraichirMessageEtat() {
+  const texte = messageSaisieActuel || messageStatutTauxActuel;
   if (texte) {
     messageErreur.textContent = texte;
     messageErreur.hidden = false;
   } else {
     messageErreur.hidden = true;
   }
+}
+
+// Affiche ou masque le message d'erreur de saisie (champ EUR/HUF invalide)
+function afficherErreurSaisie(texte) {
+  messageSaisieActuel = texte || null;
+  rafraichirMessageEtat();
+}
+
+// Affiche ou masque le message de statut du taux (cache / non actualisé / aucun taux)
+function afficherStatutTaux(texte) {
+  messageStatutTauxActuel = texte || null;
+  rafraichirMessageEtat();
 }
 
 // Affiche ou masque l'indicateur "Hors ligne" selon l'état de la connexion
@@ -184,11 +288,19 @@ function majIndicateurPerime() {
 // Recalcule le champ HUF à partir de la valeur saisie dans le champ EUR
 function convertirDepuisEur() {
   if (tauxBrut === null) return;
-  const valeurEur = analyserNombre(champEur.value);
-  if (isNaN(valeurEur)) {
+  const texte = champEur.value;
+  if (texte.trim() === '') {
     champHuf.value = '';
+    afficherErreurSaisie(null);
     return;
   }
+  const valeurEur = analyserMontant(texte, MAX_EUR);
+  if (!Number.isFinite(valeurEur)) {
+    champHuf.value = '';
+    afficherErreurSaisie('Montant EUR invalide.');
+    return;
+  }
+  afficherErreurSaisie(null);
   const huf = valeurEur * calculerTauxEffectif();
   champHuf.value = formatHuf.format(Math.round(huf));
 }
@@ -196,11 +308,19 @@ function convertirDepuisEur() {
 // Recalcule le champ EUR à partir de la valeur saisie dans le champ HUF
 function convertirDepuisHuf() {
   if (tauxBrut === null) return;
-  const valeurHuf = analyserNombre(champHuf.value);
-  if (isNaN(valeurHuf)) {
+  const texte = champHuf.value;
+  if (texte.trim() === '') {
     champEur.value = '';
+    afficherErreurSaisie(null);
     return;
   }
+  const valeurHuf = analyserMontant(texte, MAX_HUF);
+  if (!Number.isFinite(valeurHuf)) {
+    champEur.value = '';
+    afficherErreurSaisie('Montant HUF invalide.');
+    return;
+  }
+  afficherErreurSaisie(null);
   const eur = valeurHuf / calculerTauxEffectif();
   champEur.value = formatEur.format(eur);
 }
@@ -220,7 +340,7 @@ function recalculerSelonDernierChamp() {
 // -------------------------------------------------------------------------
 
 function afficherReperes() {
-  listeReperes.innerHTML = '';
+  listeReperes.replaceChildren();
   if (tauxBrut === null) return;
 
   const tauxEffectif = calculerTauxEffectif();
@@ -257,19 +377,34 @@ function afficherReperes() {
 // Graphique SVG de l'évolution du taux sur 7 jours (pur, sans bibliothèque)
 // -------------------------------------------------------------------------
 
+// Relit l'historique en cache en le validant point par point : structure
+// inattendue -> on repart d'un historique vide plutôt que de planter ou
+// d'afficher une donnée corrompue.
 function lireCacheHistorique() {
-  const brut = localStorage.getItem(CLE_HISTORIQUE);
+  const brut = lireLocalStorage(CLE_HISTORIQUE);
   if (!brut) return null;
+
+  let analyse;
   try {
-    return JSON.parse(brut);
+    analyse = JSON.parse(brut);
   } catch {
     return null;
   }
+
+  if (!analyse || typeof analyse !== 'object' || !Array.isArray(analyse.points)) {
+    return null;
+  }
+
+  const points = analyse.points
+    .filter((p) => p && dateEstValide(p.date) && tauxEstValide(p.taux))
+    .slice(-14);
+
+  return { dateCache: typeof analyse.dateCache === 'string' ? analyse.dateCache : '', points };
 }
 
 // Dessine la courbe + met à jour le texte min/max à partir d'une liste de points {date, taux}
 function afficherGraphique(points) {
-  conteneurGraphique.innerHTML = '';
+  conteneurGraphique.replaceChildren();
 
   if (!points || points.length === 0) {
     infoMinMax.textContent = 'Historique indisponible.';
@@ -331,7 +466,7 @@ async function recupererHistorique(force) {
 
   if (!force) {
     const enCache = lireCacheHistorique();
-    if (enCache && enCache.dateCache === isoAujourdhui) {
+    if (enCache && enCache.dateCache === isoAujourdhui && enCache.points.length > 0) {
       afficherGraphique(enCache.points);
       return;
     }
@@ -342,21 +477,29 @@ async function recupererHistorique(force) {
   const url = `${URL_API_HISTORIQUE_BASE}/${formaterDateISO(dateDebut)}..${isoAujourdhui}?base=EUR&symbols=HUF`;
 
   try {
-    const reponse = await fetch(url);
+    const reponse = await fetchAvecTimeout(url);
     if (!reponse.ok) throw new Error('Réponse historique invalide');
     const donnees = await reponse.json();
+    if (!donnees || typeof donnees.rates !== 'object') throw new Error('Historique mal formé');
+
+    // Même validation que pour le taux courant, appliquée à chaque point
     const points = Object.keys(donnees.rates)
+      .filter((date) => dateEstValide(date) && tauxEstValide(donnees.rates[date] && donnees.rates[date].HUF))
       .sort()
       .map((date) => ({ date, taux: donnees.rates[date].HUF }));
 
-    localStorage.setItem(CLE_HISTORIQUE, JSON.stringify({ dateCache: isoAujourdhui, points }));
+    if (points.length === 0) throw new Error('Aucun point valide dans la réponse');
+
+    ecrireLocalStorage(CLE_HISTORIQUE, JSON.stringify({ dateCache: isoAujourdhui, points: points.slice(-14) }));
     afficherGraphique(points);
   } catch (erreur) {
-    // Hors ligne ou API indisponible : on garde le dernier historique mémorisé, même périmé
+    // Hors ligne, timeout, API indisponible ou données invalides : on garde le dernier historique
+    // mémorisé (même périmé) plutôt que d'afficher une donnée douteuse
     const enCache = lireCacheHistorique();
-    if (enCache) {
+    if (enCache && enCache.points.length > 0) {
       afficherGraphique(enCache.points);
     } else {
+      conteneurGraphique.replaceChildren();
       infoMinMax.textContent = 'Historique indisponible hors ligne.';
     }
   }
@@ -366,38 +509,69 @@ async function recupererHistorique(force) {
 // Récupération du taux de change
 // -------------------------------------------------------------------------
 
+// Tente de recharger un taux précédemment validé depuis le localStorage.
+// Ne modifie l'état en mémoire que si la valeur stockée est encore valide.
+function chargerTauxCache() {
+  const tauxMemorise = lireLocalStorage(CLE_TAUX_BRUT);
+  const dateMemorisee = lireLocalStorage(CLE_DATE_TAUX);
+  const majMemorisee = lireLocalStorage(CLE_DERNIERE_MAJ);
+
+  const huf = tauxMemorise !== null ? Number(tauxMemorise) : NaN;
+  if (!tauxEstValide(huf) || !dateEstValide(dateMemorisee)) return;
+
+  const maj = majMemorisee ? new Date(majMemorisee) : null;
+  if (maj && Number.isNaN(maj.getTime())) return;
+
+  tauxBrut = huf;
+  dateTaux = dateMemorisee;
+  derniereMajDate = maj;
+}
+
+// Récupère le taux courant. Trois issues distinctes sont possibles et jamais confondues :
+// - réseau OK + données valides : le taux est actualisé, aucun message n'est affiché ;
+// - échec réseau/timeout (ou réponse HTTP invalide) : repli sur le dernier taux connu,
+//   avec le message "Taux en cache du JJ/MM à HH:MM" (ou "Aucun taux disponible" si rien n'est connu) ;
+// - réponse reçue mais données corrompues/suspectes : jamais utilisées, le taux précédent
+//   est conservé avec le message "Taux non actualisé".
 async function recupererTaux() {
+  let reponseOk = false;
+  let donneesValides = false;
+
   try {
-    const reponse = await fetch(URL_API);
-    if (!reponse.ok) throw new Error('Réponse API invalide');
-    const donnees = await reponse.json();
-    const nouveauTaux = donnees.rates && donnees.rates.HUF;
-    if (!nouveauTaux) throw new Error('Taux HUF absent de la réponse');
+    const reponse = await fetchAvecTimeout(URL_API);
+    if (reponse.ok) {
+      reponseOk = true;
+      const donnees = await reponse.json();
+      if (validerTaux(donnees)) {
+        donneesValides = true;
+        tauxBrut = donnees.rates.HUF;
+        dateTaux = donnees.date;
+        derniereMajDate = new Date();
 
-    tauxBrut = nouveauTaux;
-    dateTaux = donnees.date;
-    derniereMajDate = new Date();
-
-    // On mémorise ce taux pour pouvoir l'utiliser hors-ligne la prochaine fois
-    localStorage.setItem(CLE_TAUX_BRUT, String(tauxBrut));
-    localStorage.setItem(CLE_DATE_TAUX, dateTaux);
-    localStorage.setItem(CLE_DERNIERE_MAJ, derniereMajDate.toISOString());
-
-    afficherErreur(null);
-  } catch (erreur) {
-    // En cas d'échec, on retombe sur le dernier taux connu s'il existe
-    const tauxMemorise = localStorage.getItem(CLE_TAUX_BRUT);
-    const dateMemorisee = localStorage.getItem(CLE_DATE_TAUX);
-    const majMemorisee = localStorage.getItem(CLE_DERNIERE_MAJ);
-
-    if (tauxMemorise) {
-      tauxBrut = parseFloat(tauxMemorise);
-      dateTaux = dateMemorisee;
-      derniereMajDate = majMemorisee ? new Date(majMemorisee) : null;
-      afficherErreur('Impossible de récupérer le taux en direct. Dernier taux connu utilisé.');
-    } else {
-      afficherErreur('Impossible de récupérer le taux de change et aucun taux n\'est mémorisé.');
+        // On ne mémorise que des données déjà validées
+        ecrireLocalStorage(CLE_TAUX_BRUT, String(tauxBrut));
+        ecrireLocalStorage(CLE_DATE_TAUX, dateTaux);
+        ecrireLocalStorage(CLE_DERNIERE_MAJ, derniereMajDate.toISOString());
+      }
     }
+  } catch {
+    // Réseau indisponible, timeout, ou réponse non-JSON : reponseOk reste à false
+  }
+
+  if (donneesValides) {
+    afficherStatutTaux(null);
+  } else if (reponseOk) {
+    // La requête a abouti mais le contenu est invalide : on ne l'utilise jamais
+    if (tauxBrut === null) chargerTauxCache();
+    afficherStatutTaux(tauxBrut !== null
+      ? `Taux non actualisé (donnée reçue invalide, taux du ${dateTaux} conservé).`
+      : 'Taux non actualisé (donnée reçue invalide) et aucun taux disponible.');
+  } else {
+    // Échec réseau, timeout, ou réponse HTTP non OK
+    if (tauxBrut === null) chargerTauxCache();
+    afficherStatutTaux(tauxBrut !== null
+      ? `Taux en cache du ${formaterDateHeureCourte(derniereMajDate)}.`
+      : 'Aucun taux disponible.');
   }
 
   afficherInfosTaux();
@@ -413,8 +587,9 @@ async function recupererTaux() {
 // -------------------------------------------------------------------------
 
 function initialiserMarge() {
-  const margeMemorisee = localStorage.getItem(CLE_MARGE);
-  marge = margeMemorisee !== null ? parseFloat(margeMemorisee) : 3;
+  const margeMemorisee = lireLocalStorage(CLE_MARGE);
+  const valeur = margeMemorisee !== null ? Number(margeMemorisee) : NaN;
+  marge = Number.isFinite(valeur) && valeur >= 0 && valeur <= 10 ? valeur : 3;
   curseurMarge.value = marge;
   valeurMargeAffichee.textContent = formatTaux.format(marge);
 }
@@ -422,7 +597,7 @@ function initialiserMarge() {
 curseurMarge.addEventListener('input', () => {
   marge = parseFloat(curseurMarge.value);
   valeurMargeAffichee.textContent = formatTaux.format(marge);
-  localStorage.setItem(CLE_MARGE, String(marge));
+  ecrireLocalStorage(CLE_MARGE, String(marge));
   afficherInfosTaux();
   afficherReperes();
   recalculerSelonDernierChamp();
@@ -470,6 +645,7 @@ document.querySelectorAll('.btn-raccourci').forEach((bouton) => {
 btnReinit.addEventListener('click', () => {
   champEur.value = '';
   champHuf.value = '';
+  afficherErreurSaisie(null);
   champEur.focus();
 });
 
@@ -497,23 +673,29 @@ function appliquerTheme(theme) {
   }
 }
 
+// Ne renvoie le thème mémorisé que s'il vaut exactement 'clair' ou 'sombre' ;
+// toute autre valeur (absente, corrompue, ancien format) est traitée comme "auto"
+function themeMemoriseValide() {
+  const valeur = lireLocalStorage(CLE_THEME);
+  return valeur === 'clair' || valeur === 'sombre' ? valeur : null;
+}
+
 function initialiserTheme() {
-  const themeMemorise = localStorage.getItem(CLE_THEME); // 'clair', 'sombre' ou null (auto)
-  appliquerTheme(themeMemorise);
+  appliquerTheme(themeMemoriseValide());
 }
 
 btnTheme.addEventListener('click', () => {
   // On fait tourner les trois états : auto -> clair -> sombre -> auto ...
-  const actuel = localStorage.getItem(CLE_THEME);
+  const actuel = themeMemoriseValide();
   let suivant;
   if (actuel === null) suivant = 'clair';
   else if (actuel === 'clair') suivant = 'sombre';
   else suivant = null;
 
   if (suivant === null) {
-    localStorage.removeItem(CLE_THEME);
+    supprimerLocalStorage(CLE_THEME);
   } else {
-    localStorage.setItem(CLE_THEME, suivant);
+    ecrireLocalStorage(CLE_THEME, suivant);
   }
   appliquerTheme(suivant);
 });
