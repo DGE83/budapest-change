@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Change EUR ↔ HUF — Budapest</title>
+  <title>Change HUF ↔ EUR — Budapest</title>
   <link rel="stylesheet" href="style.css">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
@@ -12,7 +12,7 @@
 <body>
 
   <header class="entete">
-    <h1>💱 EUR ⇄ HUF</h1>
+    <h1>💱 HUF ⇄ EUR</h1>
     <button id="btn-theme" class="btn-theme" type="button" aria-label="Changer de thème">🌓</button>
   </header>
 
@@ -24,6 +24,23 @@
 
   <main class="conteneur">
 
+    <!-- Champ HUF (devise locale, saisie principale) -->
+    <section class="champ-devise">
+      <label for="champ-huf">Forints (HUF)</label>
+      <input type="text" inputmode="decimal" id="champ-huf" placeholder="0" autocomplete="off" autofocus>
+      <div class="raccourcis raccourcis--5">
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="500">500 Ft</button>
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="1000">1 000 Ft</button>
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="5000">5 000 Ft</button>
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="10000">10 000 Ft</button>
+        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="20000">20 000 Ft</button>
+      </div>
+    </section>
+
+    <div class="icone-echange">↓</div>
+
+    <button id="btn-reinit" class="btn-reinit" type="button">↺ Réinitialiser</button>
+
     <!-- Champ EUR -->
     <section class="champ-devise">
       <label for="champ-eur">Euros (EUR)</label>
@@ -33,22 +50,6 @@
         <button type="button" class="btn-raccourci" data-devise="eur" data-valeur="10">10 €</button>
         <button type="button" class="btn-raccourci" data-devise="eur" data-valeur="20">20 €</button>
         <button type="button" class="btn-raccourci" data-devise="eur" data-valeur="50">50 €</button>
-      </div>
-    </section>
-
-    <div class="icone-echange">⇅</div>
-
-    <button id="btn-reinit" class="btn-reinit" type="button">↺ Réinitialiser</button>
-
-    <!-- Champ HUF -->
-    <section class="champ-devise">
-      <label for="champ-huf">Forints (HUF)</label>
-      <input type="text" inputmode="decimal" id="champ-huf" placeholder="0" autocomplete="off">
-      <div class="raccourcis">
-        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="1000">1 000 Ft</button>
-        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="5000">5 000 Ft</button>
-        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="10000">10 000 Ft</button>
-        <button type="button" class="btn-raccourci" data-devise="huf" data-valeur="20000">20 000 Ft</button>
       </div>
     </section>
 

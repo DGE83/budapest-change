@@ -11,7 +11,7 @@
 
 // Incrémenter cette version à chaque déploiement pour que les clients
 // téléchargent le nouvel app shell et purgent l'ancien cache.
-const VERSION = 'v3';
+const VERSION = 'v4';
 const PREFIXE_CACHE = 'change-budapest-';
 const CACHE_APP_SHELL = `${PREFIXE_CACHE}${VERSION}`;
 

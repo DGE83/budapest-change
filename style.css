@@ -67,8 +67,8 @@ body {
   /* Texte volontairement grand et contrasté pour rester lisible en plein soleil */
   font-size: 18px;
   line-height: 1.4;
-  padding: 16px;
-  padding-bottom: 48px;
+  padding: 12px;
+  padding-bottom: 32px;
 }
 
 .entete {
@@ -76,7 +76,7 @@ body {
   align-items: center;
   justify-content: space-between;
   max-width: 480px;
-  margin: 0 auto 16px;
+  margin: 0 auto 8px;
 }
 
 .entete h1 {
@@ -120,14 +120,14 @@ body {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
 }
 
 .champ-devise {
   background: var(--fond-carte);
   border: 1px solid var(--bordure);
   border-radius: 16px;
-  padding: 16px;
+  padding: 10px 14px;
   box-shadow: 0 2px 6px var(--ombre);
 }
 
@@ -135,14 +135,14 @@ body {
   display: block;
   font-weight: 600;
   color: var(--texte-attenue);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .champ-devise input {
   width: 100%;
-  font-size: 2rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  padding: 14px 12px;
+  padding: 8px 10px;
   border: 2px solid var(--bordure);
   border-radius: 12px;
   background: var(--fond);
@@ -157,29 +157,35 @@ body {
 
 .icone-echange {
   text-align: center;
-  font-size: 1.4rem;
+  font-size: 1.3rem;
   color: var(--texte-attenue);
-  margin: -4px 0;
+  margin: -2px 0;
 }
 
 .raccourcis {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 12px;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* 5 montants rapides (HUF) : une colonne de plus, texte resserré pour tenir sur une ligne */
+.raccourcis--5 {
+  grid-template-columns: repeat(5, 1fr);
 }
 
 /* Gros boutons tactiles adaptés au pouce (zone de touche confortable) */
 .btn-raccourci {
-  min-height: 48px;
-  font-size: 1rem;
+  min-height: 36px;
+  font-size: clamp(0.68rem, 3vw, 1rem);
   font-weight: 600;
   border: 1px solid var(--accent);
   border-radius: 10px;
   background: transparent;
   color: var(--accent);
   cursor: pointer;
-  padding: 10px 4px;
+  padding: 6px 2px;
+  white-space: nowrap;
 }
 
 .btn-raccourci:active {
@@ -190,16 +196,16 @@ body {
 /* Bouton pour vider les deux champs entre deux conversions successives */
 .btn-reinit {
   align-self: center;
-  min-height: 44px;
-  font-size: 1rem;
+  min-height: 34px;
+  font-size: 0.9rem;
   font-weight: 600;
   border: 1px solid var(--bordure);
   border-radius: 10px;
   background: var(--fond-carte);
   color: var(--texte-attenue);
   cursor: pointer;
-  padding: 10px 20px;
-  margin: -4px 0 4px;
+  padding: 6px 16px;
+  margin: -2px 0 0;
 }
 
 .btn-reinit:active {
@@ -210,36 +216,42 @@ body {
   background: var(--fond-carte);
   border: 1px solid var(--bordure);
   border-radius: 16px;
-  padding: 16px;
+  padding: 8px 14px;
   box-shadow: 0 2px 6px var(--ombre);
 }
 
 .bloc-marge label {
   display: block;
   font-weight: 600;
-  margin-bottom: 10px;
+  margin-bottom: 4px;
 }
 
 .bloc-marge input[type="range"] {
   width: 100%;
-  height: 32px;
+  height: 24px;
 }
 
 .bloc-infos {
   background: var(--fond-carte);
   border: 1px solid var(--bordure);
   border-radius: 16px;
-  padding: 16px;
+  padding: 8px 14px;
   box-shadow: 0 2px 6px var(--ombre);
   color: var(--texte-attenue);
 }
 
 .bloc-infos p {
-  margin: 6px 0;
+  margin: 3px 0;
   display: flex;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* Le sélecteur "p" seul l'emporterait sur [hidden] (spécificité plus forte) : on le repasse
+   explicitement à display:none pour que l'indicateur "taux périmé" se masque bien quand inactif */
+.bloc-infos p[hidden] {
+  display: none;
 }
 
 .bloc-infos strong {
@@ -251,7 +263,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .titre-section {

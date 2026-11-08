@@ -1,7 +1,7 @@
 {
   "name": "Change Budapest",
   "short_name": "Change BP",
-  "description": "Convertisseur EUR ⇄ HUF avec taux BCE et marge réaliste, pour voyager à Budapest.",
+  "description": "Convertisseur HUF ⇄ EUR avec taux BCE et marge réaliste, pour voyager à Budapest.",
   "lang": "fr",
   "start_url": "./index.html",
   "scope": "./",

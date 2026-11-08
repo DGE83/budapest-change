@@ -66,7 +66,7 @@ const formatTauxAffiche = new Intl.NumberFormat('fr-FR', { minimumFractionDigits
 let tauxBrut = null;       // taux BCE EUR -> HUF (toujours une valeur déjà validée par validerTaux/tauxEstValide)
 let dateTaux = null;       // date renvoyée par l'API (toujours déjà validée par dateEstValide)
 let marge = 3;             // marge en %, 3% par défaut
-let dernierChampModifie = 'eur'; // sert à savoir quel champ recalculer après un changement de marge
+let dernierChampModifie = 'huf'; // sert à savoir quel champ recalculer après un changement de marge (HUF -> EUR par défaut)
 let derniereMajDate = null; // date/heure du dernier taux obtenu avec succès (ou repris du cache)
 
 // -------------------------------------------------------------------------
@@ -646,7 +646,7 @@ btnReinit.addEventListener('click', () => {
   champEur.value = '';
   champHuf.value = '';
   afficherErreurSaisie(null);
-  champEur.focus();
+  champHuf.focus();
 });
 
 // -------------------------------------------------------------------------
@@ -721,3 +721,4 @@ initialiserMarge();
 majIndicateurHorsLigne();
 recupererTaux();
 recupererHistorique(false);
+champHuf.focus(); // le HUF est la devise lue sur place : clavier numérique prêt dès l'ouverture
