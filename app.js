@@ -145,13 +145,30 @@ function validerTaux(donnees) {
 // Fonctions utilitaires
 // -------------------------------------------------------------------------
 
+// Ajoute un paramètre anti-cache (horodatage) à une URL d'API.
+// Ceinture-bretelles indispensable : l'API renvoie "Cache-Control: public,
+// max-age=86400", et certaines versions de WebKit/iOS ignorent l'option
+// `cache: 'no-store'` de fetch(). Avec une URL unique à chaque appel, aucun
+// cache (navigateur, CDN, service worker) ne peut resservir une vieille réponse.
+// Vérifié : l'API tolère ce paramètre supplémentaire (200, charge utile identique).
+function urlSansCache(url) {
+  const separateur = url.includes('?') ? '&' : '?';
+  return `${url}${separateur}_=${Date.now()}`;
+}
+
 // Effectue un fetch avec une limite de temps : abandonne la requête après
 // `delaiMs` pour ne jamais laisser l'interface bloquée sur un réseau très lent.
+// `cache: 'no-store'` : la réponse n'est ni lue ni écrite dans le cache HTTP,
+// on interroge donc toujours réellement le réseau (c'était la cause du taux
+// périmé affiché le 13/11/2026 alors que celui du 12/11 était publié).
 async function fetchAvecTimeout(url, delaiMs = DELAI_TIMEOUT_MS) {
   const controleur = new AbortController();
   const minuteur = setTimeout(() => controleur.abort(), delaiMs);
   try {
-    return await fetch(url, { signal: controleur.signal });
+    return await fetch(urlSansCache(url), {
+      signal: controleur.signal,
+      cache: 'no-store',
+    });
   } finally {
     clearTimeout(minuteur);
   }
@@ -181,12 +198,27 @@ function afficherInfosTaux() {
   const tauxEffectif = calculerTauxEffectif();
   infoTauxBrut.textContent = `1 € = ${formatTauxAffiche.format(tauxBrut)} Ft`;
   infoTauxReel.textContent = `1 € = ${formatTauxAffiche.format(tauxEffectif)} Ft`;
-  infoDateTaux.textContent = dateTaux || '—';
+  // "Date du taux" = date de publication renvoyée par la BCE via l'API,
+  // à ne pas confondre avec "Dernière actualisation" ci-dessous.
+  infoDateTaux.textContent = dateTaux ? new Date(`${dateTaux}T00:00:00`).toLocaleDateString('fr-FR') : '—';
 }
 
-// Affiche l'heure de la dernière actualisation réussie (ou reprise du cache)
+// Affiche la date/heure du dernier succès réseau — pas l'heure du clic sur
+// "Actualiser" : `derniereMajDate` n'est mis à jour que quand des données
+// valides ont effectivement été reçues (voir recupererTaux), et il est
+// restauré depuis le localStorage au démarrage.
+// L'heure seule serait trompeuse pour un taux rapatrié la veille : on
+// préfixe donc la date dès que le dernier succès n'est pas du jour même.
 function afficherHeureMaj() {
-  infoMaj.textContent = derniereMajDate ? derniereMajDate.toLocaleTimeString('fr-FR') : '—';
+  if (!derniereMajDate) {
+    infoMaj.textContent = '—';
+    return;
+  }
+  const heure = derniereMajDate.toLocaleTimeString('fr-FR');
+  const estAujourdhui = formaterDateISO(derniereMajDate) === formaterDateISO(new Date());
+  infoMaj.textContent = estAujourdhui
+    ? `aujourd'hui à ${heure}`
+    : `${derniereMajDate.toLocaleDateString('fr-FR')} à ${heure}`;
 }
 
 // Formate une date en "JJ/MM à HH:MM" (fuseau local)
@@ -240,27 +272,19 @@ function majIndicateurHorsLigne() {
 window.addEventListener('online', majIndicateurHorsLigne);
 window.addEventListener('offline', majIndicateurHorsLigne);
 
-// Compte les jours ouvrés (lun-ven) strictement après dateDebut, jusqu'à dateFin inclus.
-// La BCE ne publie pas de taux le samedi ni le dimanche : ces jours ne comptent pas comme "retard".
-function compterJoursOuvres(dateDebut, dateFin) {
-  let compte = 0;
-  const curseur = new Date(dateDebut);
-  curseur.setDate(curseur.getDate() + 1);
-  while (curseur <= dateFin) {
-    const jourSemaine = curseur.getDay(); // 0 = dimanche, 6 = samedi
-    if (jourSemaine !== 0 && jourSemaine !== 6) compte++;
-    curseur.setDate(curseur.getDate() + 1);
-  }
-  return compte;
-}
+// Seuil au-delà duquel le taux affiché est signalé comme périmé.
+// 3 jours calendaires : un week-end (vendredi -> lundi = 3 jours) ou un jour
+// férié ne déclenche donc jamais de fausse alerte, puisque la BCE ne publie
+// ni le samedi, ni le dimanche, ni les jours de fermeture TARGET.
+// Entre 1 et 3 jours d'écart : aucun bandeau.
+const SEUIL_PERIME_JOURS = 3;
 
 function joursCalendairesEntre(dateDebut, dateFin) {
   const MS_PAR_JOUR = 24 * 60 * 60 * 1000;
   return Math.round((dateFin - dateDebut) / MS_PAR_JOUR);
 }
 
-// Affiche un avertissement si le taux affiché est trop ancien :
-// plus de 3 jours calendaires, ou plus de 1 jour ouvré (hors week-end, normal côté BCE).
+// Affiche un avertissement uniquement si la date du taux a plus de 3 jours.
 function majIndicateurPerime() {
   if (!tauxBrut || !dateTaux) {
     indicateurPerime.hidden = true;
@@ -270,11 +294,10 @@ function majIndicateurPerime() {
   const aujourdhui = new Date();
   aujourdhui.setHours(0, 0, 0, 0);
 
-  const diffCalendaire = joursCalendairesEntre(dateRef, aujourdhui);
-  const diffOuvres = compterJoursOuvres(dateRef, aujourdhui);
+  const ancienneteJours = joursCalendairesEntre(dateRef, aujourdhui);
 
-  if (diffCalendaire > 3 || diffOuvres > 1) {
-    indicateurPerime.textContent = `⚠️ Taux périmé (daté du ${dateRef.toLocaleDateString('fr-FR')})`;
+  if (ancienneteJours > SEUIL_PERIME_JOURS) {
+    indicateurPerime.textContent = `⚠️ Taux périmé (daté du ${dateRef.toLocaleDateString('fr-FR')}, ${ancienneteJours} jours)`;
     indicateurPerime.hidden = false;
   } else {
     indicateurPerime.hidden = true;
@@ -511,20 +534,45 @@ async function recupererHistorique(force) {
 
 // Tente de recharger un taux précédemment validé depuis le localStorage.
 // Ne modifie l'état en mémoire que si la valeur stockée est encore valide.
+// Renvoie true si un taux de secours a été restauré.
+// Trois informations sont mémorisées à chaque succès réseau : le taux, sa date
+// de publication BCE, et l'heure de récupération — de sorte qu'hors réseau on
+// affiche le dernier taux connu avec sa vraie date, jamais la date du jour.
 function chargerTauxCache() {
   const tauxMemorise = lireLocalStorage(CLE_TAUX_BRUT);
   const dateMemorisee = lireLocalStorage(CLE_DATE_TAUX);
   const majMemorisee = lireLocalStorage(CLE_DERNIERE_MAJ);
 
   const huf = tauxMemorise !== null ? Number(tauxMemorise) : NaN;
-  if (!tauxEstValide(huf) || !dateEstValide(dateMemorisee)) return;
+  if (!tauxEstValide(huf) || !dateEstValide(dateMemorisee)) return false;
 
   const maj = majMemorisee ? new Date(majMemorisee) : null;
-  if (maj && Number.isNaN(maj.getTime())) return;
+  if (maj && Number.isNaN(maj.getTime())) return false;
 
   tauxBrut = huf;
   dateTaux = dateMemorisee;
   derniereMajDate = maj;
+  return true;
+}
+
+// Enregistre un taux fraîchement validé : taux, date BCE et heure de récupération.
+function memoriserTaux() {
+  ecrireLocalStorage(CLE_TAUX_BRUT, String(tauxBrut));
+  ecrireLocalStorage(CLE_DATE_TAUX, dateTaux);
+  ecrireLocalStorage(CLE_DERNIERE_MAJ, derniereMajDate.toISOString());
+}
+
+// Restaure le dernier taux connu et peint l'interface tout de suite, avant la
+// moindre requête : hors réseau (ou sur réseau lent, jusqu'à 8 s de timeout),
+// l'utilisateur voit le dernier taux avec sa date au lieu de "—".
+function afficherTauxDeSecours() {
+  if (!chargerTauxCache()) return;
+  afficherInfosTaux();
+  afficherHeureMaj();
+  majIndicateurHorsLigne();
+  majIndicateurPerime();
+  afficherReperes();
+  recalculerSelonDernierChamp();
 }
 
 // Récupère le taux courant. Trois issues distinctes sont possibles et jamais confondues :
@@ -549,9 +597,7 @@ async function recupererTaux() {
         derniereMajDate = new Date();
 
         // On ne mémorise que des données déjà validées
-        ecrireLocalStorage(CLE_TAUX_BRUT, String(tauxBrut));
-        ecrireLocalStorage(CLE_DATE_TAUX, dateTaux);
-        ecrireLocalStorage(CLE_DERNIERE_MAJ, derniereMajDate.toISOString());
+        memoriserTaux();
       }
     }
   } catch {
@@ -569,9 +615,15 @@ async function recupererTaux() {
   } else {
     // Échec réseau, timeout, ou réponse HTTP non OK
     if (tauxBrut === null) chargerTauxCache();
-    afficherStatutTaux(tauxBrut !== null
-      ? `Taux en cache du ${formaterDateHeureCourte(derniereMajDate)}.`
-      : 'Aucun taux disponible.');
+    if (tauxBrut === null) {
+      afficherStatutTaux('Aucun taux disponible.');
+    } else if (derniereMajDate) {
+      afficherStatutTaux(`Taux du ${dateTaux} (récupéré le ${formaterDateHeureCourte(derniereMajDate)}).`);
+    } else {
+      // Taux mémorisé sans horodatage de récupération (stockage partiel) :
+      // on n'invente pas d'heure, on s'en tient à la date du taux.
+      afficherStatutTaux(`Taux du ${dateTaux} conservé (réseau indisponible).`);
+    }
   }
 
   afficherInfosTaux();
@@ -716,9 +768,32 @@ if ('serviceWorker' in navigator) {
 // Démarrage de l'application
 // -------------------------------------------------------------------------
 
+// Montant proposé à l'ouverture : un ordre de grandeur utile sur place
+// (10 € ~ 3 600 Ft) plutôt qu'une valeur symbolique.
+const MONTANT_EUR_PAR_DEFAUT = 10;
+
+// Pré-remplit le champ EUR et calcule son équivalent en HUF. Ne fait rien si
+// l'utilisateur a déjà saisi quelque chose (champ non vide).
+function appliquerMontantParDefaut() {
+  if (champEur.value.trim() !== '' || champHuf.value.trim() !== '') return;
+  champEur.value = formatEur.format(MONTANT_EUR_PAR_DEFAUT);
+  dernierChampModifie = 'eur';
+  convertirDepuisEur(); // sans taux connu, la fonction sort sans rien écrire
+}
+
 initialiserTheme();
 initialiserMarge();
 majIndicateurHorsLigne();
+
+// Le dernier taux connu est peint avant toute requête : l'écran n'est jamais
+// vide, même hors réseau ou pendant les 8 s de timeout.
+afficherTauxDeSecours();
+appliquerMontantParDefaut();
+
+// Puis on interroge le réseau ; dès qu'un taux frais arrive, recupererTaux()
+// réaffiche tout et appelle recalculerSelonDernierChamp(), qui convertit le
+// montant par défaut même si aucun taux n'était connu au démarrage.
 recupererTaux();
 recupererHistorique(false);
+
 champHuf.focus(); // le HUF est la devise lue sur place : clavier numérique prêt dès l'ouverture
